@@ -314,6 +314,16 @@ private struct AISettingsPane: View {
                         }
                         .buttonStyle(.vitrineProminent)
                         .disabled(!store.aiAvailable || store.titlingBusy || store.pendingTitleCount == 0)
+                        if !store.smartTitles.isEmpty && !store.titlingBusy {
+                            Button {
+                                Task { await store.generateSmartTitles(force: true) }
+                            } label: {
+                                Label("重新生成", systemImage: "arrow.clockwise").font(.system(size: 12, weight: .semibold))
+                            }
+                            .buttonStyle(.vitrine)
+                            .disabled(!store.aiAvailable)
+                            .help("用改进后的提示词刷新已生成的标题")
+                        }
                         if store.titlingBusy {
                             Button("取消") { store.cancelTitling() }.buttonStyle(.vitrine)
                         }

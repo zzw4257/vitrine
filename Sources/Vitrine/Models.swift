@@ -210,7 +210,7 @@ struct SessionRecord: Codable, Identifiable, Hashable {
     /// A structured, human-legible fallback built from what the session actually did —
     /// "<project> · <intent-or-activity>". Instant, deterministic, and never overwrites `title`.
     var heuristicTitle: String {
-        if let p = userPrompts.first(where: { $0.count >= 8 }) {
+        if let p = substantivePrompts.first {
             return projectName + " · " + SessionRecord.condense(p, 24)
         }
         return projectName + " · " + activityPhrase
@@ -229,6 +229,33 @@ struct SessionRecord: Codable, Identifiable, Hashable {
         let reads = (toolCounts["Read"] ?? 0) + (toolCounts["Grep"] ?? 0) + (toolCounts["Glob"] ?? 0)
         if reads > 0 { return "查阅代码" }
         return "\(messageCount) 轮对话"
+    }
+
+    /// Prompts that carry real intent — pure continuations ("继续/做完/ok") and one-word replies
+    /// are dropped, so the title model sees what was actually asked, not filler turns.
+    var substantivePrompts: [String] {
+        userPrompts.filter { p in
+            let t = p.trimmingCharacters(in: .whitespacesAndNewlines)
+            if t.count < 6 { return false }
+            if t.count < 14, SessionRecord.continuationWords.contains(where: { t.lowercased().hasPrefix($0) }) {
+                return false
+            }
+            return true
+        }
+    }
+    private static let continuationWords = ["继续", "接着", "做完", "下一步", "go on", "continue",
+                                            "next", "go ahead", "好的", "可以", "ok", "okay", "行", "done"]
+
+    /// Whether there's anything concrete to title with. Without it, an AI title would be a guess —
+    /// the heuristic ("<project> · N 轮对话") is more honest, so we skip AI generation.
+    var hasTitleSignal: Bool {
+        !substantivePrompts.isEmpty || !filesTouched.isEmpty || !bashCommands.isEmpty
+    }
+
+    /// A cached summary that is itself a model failure ("没有看到内容，请提供…") — must not be fed on.
+    static func looksLikeFailedSummary(_ s: String) -> Bool {
+        ["没有看到", "请提供", "没有包含", "我就能", "未看到", "无法看到", "没有具体", "看不到"]
+            .contains { s.contains($0) }
     }
 
     static func condense(_ s: String, _ n: Int) -> String {

@@ -277,7 +277,9 @@ final class AppStore {
 
     /// Count of sessions that would benefit from an AI title right now (weak-titled, not noise, not yet done).
     var pendingTitleCount: Int {
-        sessions.lazy.filter { $0.hasWeakTitle && $0.qualityTier != .noise && self.smartTitles[$0.id] == nil }.count
+        sessions.lazy.filter {
+            $0.hasWeakTitle && $0.qualityTier != .noise && $0.hasTitleSignal && self.smartTitles[$0.id] == nil
+        }.count
     }
 
     /// Incrementally generate AI smart titles for weak-titled, non-noise sessions without one.
@@ -286,10 +288,17 @@ final class AppStore {
     @MainActor
     func generateSmartTitles(force: Bool = false, auto: Bool = false) async {
         guard !titlingBusy, aiAvailable else { return }
+        if force {
+            // Drop stale titles for sessions that no longer qualify (contentless / noise) so they
+            // fall back to the honest heuristic instead of keeping an old hallucinated title.
+            let valid = Set(allSessions.filter { $0.hasTitleSignal && $0.qualityTier != .noise }.map(\.id))
+            let pruned = smartTitles.filter { valid.contains($0.key) }
+            if pruned.count != smartTitles.count { smartTitles = pruned; saveSmartTitles() }
+        }
         var targets = sessions.filter { s in
-            guard s.qualityTier != .noise else { return false }        // never spend tokens on hidden noise
-            guard force || smartTitles[s.id] == nil else { return false }
-            return force || s.hasWeakTitle
+            // Only weak titles, never noise, and only when there's real content to title from.
+            guard s.qualityTier != .noise, s.hasWeakTitle, s.hasTitleSignal else { return false }
+            return force || smartTitles[s.id] == nil                             // force also refreshes cached
         }
         if auto { targets = Array(targets.prefix(60)) }                // sessions are recent-first
         guard !targets.isEmpty else { return }
@@ -300,15 +309,17 @@ final class AppStore {
         await withTaskGroup(of: (String, String)?.self) { group in
             func addNext() {
                 guard !titleCancel, let s = iterator.next() else { return }
-                let facts = Self.titleFacts(s)
+                let facts = Self.titleFacts(s, summary: summaries[s.id])
                 group.addTask {
                     let out = try? await AIClient.chat(
                         cfg,
-                        system: "你给一个 AI 编程会话起标题。只输出 ≤14 字的中文短标题，格式「项目 · 要点」，不要引号、不要解释。",
-                        user: facts, maxTokens: 60, timeout: 60, model: cfg.fastModel)
+                        system: Self.titleSystemPrompt,
+                        user: facts, maxTokens: 80, timeout: 60, model: cfg.fastModel)
                     guard let out, !out.isEmpty else { return nil }
-                    let clean = out.trimmingCharacters(in: .whitespacesAndNewlines)
+                    var clean = out.trimmingCharacters(in: .whitespacesAndNewlines)
                         .replacingOccurrences(of: "\n", with: " ")
+                    clean = clean.trimmingCharacters(in: CharacterSet(charactersIn: "「」『』\"'“”。. "))
+                    guard !clean.isEmpty else { return nil }
                     return (s.id, String(clean.prefix(40)))
                 }
             }
@@ -324,20 +335,38 @@ final class AppStore {
     }
 
     /// Compact structured facts for the title model: project · phase-signals · intent.
-    private static func titleFacts(_ s: SessionRecord) -> String {
-        var lines = ["项目：\(s.projectName)", "Agent：\(s.agent.display)"]
-        if !s.models.isEmpty { lines.append("模型：\(s.models.joined(separator: "/"))") }
-        lines.append("规模：\(s.messageCount) 轮 · \(Fmt.tokens(s.totalTokens)) tokens")
+    /// Facts for the title model, strongest signal first. An existing summary (real content) beats
+    /// everything; then the actual asks; then the concrete files/commands touched.
+    private static func titleFacts(_ s: SessionRecord, summary: String?) -> String {
+        var lines = ["项目：\(s.projectName)"]
+        if let sum = summary, !sum.isEmpty, !SessionRecord.looksLikeFailedSummary(sum) {
+            lines.append("会话摘要（最可靠，优先据此提炼）：" + SessionRecord.condense(sum, 180))
+        }
+        let prompts = s.substantivePrompts.prefix(4).map { SessionRecord.condense($0, 90) }
+        if !prompts.isEmpty { lines.append("用户实际提问：" + prompts.joined(separator: " ／ ")) }
         if !s.filesTouched.isEmpty {
-            lines.append("触碰文件：" + s.filesTouched.prefix(6).map { ($0 as NSString).lastPathComponent }.joined(separator: "、"))
+            lines.append("改动文件：" + s.filesTouched.prefix(8).map { ($0 as NSString).lastPathComponent }.joined(separator: "、"))
         }
         if !s.bashCommands.isEmpty {
-            lines.append("命令：" + s.bashCommands.prefix(4).map { String($0.prefix(40)) }.joined(separator: " ; "))
+            lines.append("关键命令：" + s.bashCommands.prefix(5).map { String($0.prefix(50)) }.joined(separator: " ; "))
         }
-        let prompts = s.userPrompts.prefix(3).map { SessionRecord.condense($0, 60) }
-        if !prompts.isEmpty { lines.append("提问：" + prompts.joined(separator: " / ")) }
+        lines.append("规模：\(s.messageCount) 轮 · \(Fmt.tokens(s.totalTokens)) tokens")
         return lines.joined(separator: "\n")
     }
+
+    /// Title prompt: few-shot + an explicit ban on the vague filler Haiku falls back to.
+    static let titleSystemPrompt = """
+    你为一次 AI 编程会话起一个精准的中文短标题，像给 Pull Request 起标题。
+    - 格式「项目 · 要点」，总长 ≤16 字；「项目」尽量沿用给定的项目名。
+    - 「要点」必须具体说清这次到底做了什么：具体功能 / 文件 / 问题 / 模块 / 决策。
+    - 严禁空泛词：迭代、探索、优化、深度、持续、编程工作、开发、处理、相关、若干、初步、启动、就绪、确认。
+    - 只输出标题本身，不带引号、不带解释、结尾不加标点。
+    示例：
+    MLsys · 修复 KV-cache 显存泄漏
+    日历助手 · 接入本地 Whisper 语音
+    GoPhish · 补全钓鱼邮件模板与追踪
+    量化回测 · 定位 Sharpe 计算错误
+    """
 
     // MARK: Project insights
 
