@@ -160,6 +160,7 @@ private struct SearchHitRow: View {
                 HStack(spacing: 8) {
                     AgentBadge(agent: session.agent, compact: true)
                     Text(store.displayTitle(session)).font(.system(size: 12.5, weight: .semibold)).lineLimit(1)
+                        .shimmering(store.titlePending(session))
                     Spacer()
                     Text(session.projectName).font(.system(size: 10.5)).foregroundStyle(V.textDim)
                     Text(Fmt.day(session.startedAt)).font(.system(size: 10.5)).foregroundStyle(V.textDim)

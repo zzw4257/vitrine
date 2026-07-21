@@ -149,6 +149,9 @@ struct SessionCard: View {
                     .foregroundStyle(theme.textStrong)
                     .lineLimit(compact ? 2 : 3)
                     .fixedSize(horizontal: false, vertical: true)
+                    .contentTransition(.opacity)
+                    .animation(.easeInOut(duration: 0.35), value: store.displayTitle(session))
+                    .shimmering(store.titlePending(session))
 
                 if showSnippet, let sn = Self.snippet(for: session), sn != session.title {
                     Text(sn)

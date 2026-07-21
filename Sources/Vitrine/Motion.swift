@@ -145,6 +145,39 @@ extension View {
     func pressable(_ scale: CGFloat = 0.95) -> some View {
         buttonStyle(PressScale(scale: scale))
     }
+    /// A light band that sweeps across the content while `active` — signals "being generated".
+    func shimmering(_ active: Bool) -> some View { modifier(Shimmer(active: active)) }
+}
+
+// MARK: - Shimmer (content being generated, e.g. an AI title in flight)
+
+private struct Shimmer: ViewModifier {
+    var active: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func body(content: Content) -> some View {
+        if active && !reduceMotion {
+            content.overlay {
+                GeometryReader { geo in
+                    TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { tl in
+                        let period = 1.5
+                        let p = (tl.date.timeIntervalSinceReferenceDate
+                                    .truncatingRemainder(dividingBy: period)) / period
+                        let w = max(1, geo.size.width)
+                        LinearGradient(colors: [.clear, .white.opacity(0.55), .clear],
+                                       startPoint: .leading, endPoint: .trailing)
+                            .frame(width: w * 0.45)
+                            .offset(x: -w * 0.45 + (w * 1.45) * p)
+                    }
+                }
+                .blendMode(.plusLighter)
+                .mask(content)
+                .allowsHitTesting(false)
+            }
+        } else {
+            content
+        }
+    }
 }
 
 // MARK: - Live pulse (for "running" / scanning indicators)

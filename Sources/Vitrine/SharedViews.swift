@@ -58,6 +58,9 @@ struct SessionRow: View {
                         .font(.system(size: 12.5, weight: .semibold))
                         .foregroundStyle(theme.textStrong)
                         .lineLimit(1)
+                        .contentTransition(.opacity)
+                        .animation(.easeInOut(duration: 0.35), value: store.displayTitle(session))
+                        .shimmering(store.titlePending(session))
                     HStack(spacing: 6) {
                         if showProject {
                             Label(session.projectName, systemImage: "folder")

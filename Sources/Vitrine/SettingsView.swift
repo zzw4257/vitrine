@@ -291,6 +291,14 @@ private struct AISettingsPane: View {
                         Text("对所有会话使用智能标题").font(.system(size: 12, weight: .medium))
                     }
                     .toggleStyle(.switch).controlSize(.small)
+                    Toggle(isOn: $store.autoSmartTitles) {
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text("扫描后自动补齐弱标题").font(.system(size: 12, weight: .medium))
+                            Text("后台增量生成最近弱标题（跳过噪音会话，省 token），标题就位时有微光过渡")
+                                .font(.system(size: 10)).foregroundStyle(theme.textDim)
+                        }
+                    }
+                    .toggleStyle(.switch).controlSize(.small)
                     HStack(spacing: 10) {
                         Button {
                             Task { await store.generateSmartTitles() }

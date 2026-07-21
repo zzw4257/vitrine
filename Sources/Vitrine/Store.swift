@@ -29,7 +29,19 @@ final class AppStore {
     // Smart titles — a NON-destructive title layer (raw `title` is always preserved).
     // AI-generated entries live here (persisted); heuristic titles are computed on the fly.
     var smartTitles: [String: String] = [:]
-    var useSmartTitles = false   // apply smart/heuristic to ALL sessions, not only weak-titled ones
+    // apply smart/heuristic to ALL sessions (not only weak-titled ones); persisted
+    var useSmartTitles = UserDefaults.standard.bool(forKey: "vitrine.useSmartTitles") {
+        didSet { UserDefaults.standard.set(useSmartTitles, forKey: "vitrine.useSmartTitles") }
+    }
+    // after each scan, quietly AI-title recent weak-titled sessions in the background; persisted
+    var autoSmartTitles = UserDefaults.standard.bool(forKey: "vitrine.autoSmartTitles") {
+        didSet { UserDefaults.standard.set(autoSmartTitles, forKey: "vitrine.autoSmartTitles") }
+    }
+
+    /// A session whose AI title is being generated right now (drives the row shimmer).
+    func titlePending(_ s: SessionRecord) -> Bool {
+        titlingBusy && smartTitles[s.id] == nil && s.hasWeakTitle && s.qualityTier != .noise
+    }
 
     /// The title to show for browsing: AI smart title if present → heuristic (for weak titles, or
     /// when smart mode is on) → the raw title. Never mutates the SessionRecord.
@@ -145,6 +157,11 @@ final class AppStore {
         lastScan = Date()
         status = "共 \(allSessions.count) 个会话 · \(projects.count) 个项目"
         scanning = false
+
+        // Quietly upgrade recent weak titles in the background, if the user opted in.
+        if autoSmartTitles && aiAvailable {
+            Task { await generateSmartTitles(auto: true) }
+        }
     }
 
     @MainActor
@@ -258,20 +275,23 @@ final class AppStore {
     @ObservationIgnored private var titleCancel = false
     func cancelTitling() { titleCancel = true }
 
-    /// Count of sessions that would benefit from an AI title right now (weak-titled, not yet done).
+    /// Count of sessions that would benefit from an AI title right now (weak-titled, not noise, not yet done).
     var pendingTitleCount: Int {
-        sessions.lazy.filter { $0.hasWeakTitle && self.smartTitles[$0.id] == nil }.count
+        sessions.lazy.filter { $0.hasWeakTitle && $0.qualityTier != .noise && self.smartTitles[$0.id] == nil }.count
     }
 
-    /// Incrementally generate AI smart titles. Default target: weak-titled sessions without one.
-    /// Cached + persisted; never touches raw titles. Small concurrency pool.
+    /// Incrementally generate AI smart titles for weak-titled, non-noise sessions without one.
+    /// `auto` (post-scan background pass) caps to the most recent few to stay cheap. Cached +
+    /// persisted; never touches raw titles. Small concurrency pool.
     @MainActor
-    func generateSmartTitles(force: Bool = false) async {
-        guard !titlingBusy else { return }
-        let targets = sessions.filter { s in
+    func generateSmartTitles(force: Bool = false, auto: Bool = false) async {
+        guard !titlingBusy, aiAvailable else { return }
+        var targets = sessions.filter { s in
+            guard s.qualityTier != .noise else { return false }        // never spend tokens on hidden noise
             guard force || smartTitles[s.id] == nil else { return false }
             return force || s.hasWeakTitle
         }
+        if auto { targets = Array(targets.prefix(60)) }                // sessions are recent-first
         guard !targets.isEmpty else { return }
         titlingBusy = true; titleCancel = false; titleDone = 0; titleTotal = targets.count
         let cfg = ai.snapshot()
