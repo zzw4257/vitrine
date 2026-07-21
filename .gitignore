@@ -3,8 +3,9 @@
 .swiftpm/
 Package.resolved
 
-# Build output (assembled app bundle + generated icon)
+# Build output (assembled app bundle + generated icon + packaged zips)
 build/
+*.app.zip
 
 # macOS
 .DS_Store
