@@ -1,0 +1,47 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build Vitrine.app
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Toolchain
+        run: |
+          sw_vers
+          swift --version
+
+      - name: Build (release)
+        run: swift build -c release
+
+      - name: Assemble & package app
+        run: |
+          ./build.sh
+          ditto -c -k --sequesterRsrc --keepParent build/Vitrine.app Vitrine.app.zip
+          shasum -a 256 Vitrine.app.zip
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Vitrine.app
+          path: Vitrine.app.zip
+          if-no-files-found: error
+
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: Vitrine.app.zip
+          generate_release_notes: true
