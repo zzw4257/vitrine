@@ -142,9 +142,13 @@ struct SessionDetailView: View {
                 }
                 .buttonStyle(.vitrine)
             }
-            Text(session.title)
+            Text(store.displayTitle(session))
                 .font(.system(size: 17, weight: .bold, design: .rounded))
                 .lineLimit(2)
+            if store.displayTitle(session) != session.title {
+                Text("原始标题：\(session.title)")
+                    .font(.system(size: 10.5)).foregroundStyle(theme.textFaint).lineLimit(1)
+            }
             HStack(spacing: 8) {
                 GlassChip(text: session.projectName, color: V.violet, systemImage: "folder")
                 GlassChip(text: Fmt.day(session.startedAt) + " · " + Fmt.duration(session.duration),

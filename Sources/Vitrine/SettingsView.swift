@@ -209,6 +209,7 @@ private struct AISettingsPane: View {
     }
 
     var body: some View {
+        @Bindable var store = store
         let ai = store.ai
         return VStack(alignment: .leading, spacing: 16) {
             statusBanner(ai)
@@ -282,7 +283,42 @@ private struct AISettingsPane: View {
                 }
             }
 
-            Text("AI 用于会话总结、项目洞察、技能蒸馏。API Key 明文存于本机 UserDefaults，首次会尝试从 OPENAI_API_KEY 或 ~/.codex/auth.json 预填。")
+            // Smart titles — non-destructive title layer
+            GlassCard(tint: V.violet) {
+                VStack(alignment: .leading, spacing: 12) {
+                    stepHeader(4, "智能标题", "弱标题（空/无标题/难懂）默认已用结构启发式修复；AI 深度标题可选，均不覆盖原始标题")
+                    Toggle(isOn: $store.useSmartTitles) {
+                        Text("对所有会话使用智能标题").font(.system(size: 12, weight: .medium))
+                    }
+                    .toggleStyle(.switch).controlSize(.small)
+                    HStack(spacing: 10) {
+                        Button {
+                            Task { await store.generateSmartTitles() }
+                        } label: {
+                            HStack(spacing: 6) {
+                                if store.titlingBusy { ProgressView().controlSize(.small) }
+                                else { Image(systemName: "sparkles") }
+                                Text(store.titlingBusy
+                                     ? "生成中 \(store.titleDone)/\(store.titleTotal)"
+                                     : "AI 生成弱标题（\(store.pendingTitleCount) 条）")
+                                    .font(.system(size: 12, weight: .semibold))
+                            }
+                        }
+                        .buttonStyle(.vitrineProminent)
+                        .disabled(!store.aiAvailable || store.titlingBusy || store.pendingTitleCount == 0)
+                        if store.titlingBusy {
+                            Button("取消") { store.cancelTitling() }.buttonStyle(.vitrine)
+                        }
+                        Spacer()
+                    }
+                    if store.titlingBusy {
+                        ProgressView(value: Double(store.titleDone), total: Double(max(1, store.titleTotal)))
+                            .tint(V.violet)
+                    }
+                }
+            }
+
+            Text("AI 用于会话总结、项目洞察、技能蒸馏、智能标题。API Key 明文存于本机 UserDefaults，首次会尝试从 OPENAI_API_KEY 或 ~/.codex/auth.json 预填。")
                 .font(.system(size: 10)).foregroundStyle(theme.textDim)
         }
     }

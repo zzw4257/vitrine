@@ -26,6 +26,19 @@ final class AppStore {
     // AI summaries, persisted separately from the scan cache
     var summaries: [String: String] = [:]
 
+    // Smart titles — a NON-destructive title layer (raw `title` is always preserved).
+    // AI-generated entries live here (persisted); heuristic titles are computed on the fly.
+    var smartTitles: [String: String] = [:]
+    var useSmartTitles = false   // apply smart/heuristic to ALL sessions, not only weak-titled ones
+
+    /// The title to show for browsing: AI smart title if present → heuristic (for weak titles, or
+    /// when smart mode is on) → the raw title. Never mutates the SessionRecord.
+    func displayTitle(_ s: SessionRecord) -> String {
+        if let ai = smartTitles[s.id], !ai.isEmpty { return ai }
+        if useSmartTitles || s.hasWeakTitle { return s.heuristicTitle }
+        return s.title
+    }
+
     // Per-project AI insights (overview + timeline) — a secondary layer, cached per path
     var insights: [String: ProjectInsight] = [:]
 
@@ -73,6 +86,7 @@ final class AppStore {
         status = "发现会话文件…"
         loadSummaries()
         loadInsights()
+        loadSmartTitles()
 
         // Phase 1: cache hits + opencode metadata appear immediately.
         let prepared = await Task.detached(priority: .userInitiated) {
@@ -220,6 +234,89 @@ final class AppStore {
         }
         saveSummaries()
         batchSummarizing = false
+    }
+
+    // MARK: Smart titles (non-destructive AI title layer)
+
+    private var smartTitlesURL: URL { ScanEngine.supportDir.appendingPathComponent("smart-titles.json") }
+
+    func loadSmartTitles() {
+        guard smartTitles.isEmpty,
+              let data = try? Data(contentsOf: smartTitlesURL),
+              let dict = try? JSONDecoder().decode([String: String].self, from: data) else { return }
+        smartTitles = dict
+    }
+    private func saveSmartTitles() {
+        if let data = try? JSONEncoder().encode(smartTitles) {
+            try? data.write(to: smartTitlesURL, options: .atomic)
+        }
+    }
+
+    var titlingBusy = false
+    var titleDone = 0
+    var titleTotal = 0
+    @ObservationIgnored private var titleCancel = false
+    func cancelTitling() { titleCancel = true }
+
+    /// Count of sessions that would benefit from an AI title right now (weak-titled, not yet done).
+    var pendingTitleCount: Int {
+        sessions.lazy.filter { $0.hasWeakTitle && self.smartTitles[$0.id] == nil }.count
+    }
+
+    /// Incrementally generate AI smart titles. Default target: weak-titled sessions without one.
+    /// Cached + persisted; never touches raw titles. Small concurrency pool.
+    @MainActor
+    func generateSmartTitles(force: Bool = false) async {
+        guard !titlingBusy else { return }
+        let targets = sessions.filter { s in
+            guard force || smartTitles[s.id] == nil else { return false }
+            return force || s.hasWeakTitle
+        }
+        guard !targets.isEmpty else { return }
+        titlingBusy = true; titleCancel = false; titleDone = 0; titleTotal = targets.count
+        let cfg = ai.snapshot()
+
+        var iterator = targets.makeIterator()
+        await withTaskGroup(of: (String, String)?.self) { group in
+            func addNext() {
+                guard !titleCancel, let s = iterator.next() else { return }
+                let facts = Self.titleFacts(s)
+                group.addTask {
+                    let out = try? await AIClient.chat(
+                        cfg,
+                        system: "你给一个 AI 编程会话起标题。只输出 ≤14 字的中文短标题，格式「项目 · 要点」，不要引号、不要解释。",
+                        user: facts, maxTokens: 60, timeout: 60)
+                    guard let out, !out.isEmpty else { return nil }
+                    let clean = out.trimmingCharacters(in: .whitespacesAndNewlines)
+                        .replacingOccurrences(of: "\n", with: " ")
+                    return (s.id, String(clean.prefix(40)))
+                }
+            }
+            for _ in 0..<3 { addNext() }
+            while let r = await group.next() {
+                if let (id, t) = r { smartTitles[id] = t }
+                titleDone += 1
+                if !titleCancel { addNext() }
+            }
+        }
+        saveSmartTitles()
+        titlingBusy = false
+    }
+
+    /// Compact structured facts for the title model: project · phase-signals · intent.
+    private static func titleFacts(_ s: SessionRecord) -> String {
+        var lines = ["项目：\(s.projectName)", "Agent：\(s.agent.display)"]
+        if !s.models.isEmpty { lines.append("模型：\(s.models.joined(separator: "/"))") }
+        lines.append("规模：\(s.messageCount) 轮 · \(Fmt.tokens(s.totalTokens)) tokens")
+        if !s.filesTouched.isEmpty {
+            lines.append("触碰文件：" + s.filesTouched.prefix(6).map { ($0 as NSString).lastPathComponent }.joined(separator: "、"))
+        }
+        if !s.bashCommands.isEmpty {
+            lines.append("命令：" + s.bashCommands.prefix(4).map { String($0.prefix(40)) }.joined(separator: " ; "))
+        }
+        let prompts = s.userPrompts.prefix(3).map { SessionRecord.condense($0, 60) }
+        if !prompts.isEmpty { lines.append("提问：" + prompts.joined(separator: " / ")) }
+        return lines.joined(separator: "\n")
     }
 
     // MARK: Project insights

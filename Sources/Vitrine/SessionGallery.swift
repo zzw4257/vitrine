@@ -111,6 +111,7 @@ private struct MasonryFlow: View {
 struct SessionCard: View {
     @Environment(\.openSession) private var openSession
     @Environment(ThemeManager.self) private var theme
+    @Environment(AppStore.self) private var store
     var session: SessionRecord
     var compact: Bool = false
     var showSnippet: Bool = false
@@ -143,7 +144,7 @@ struct SessionCard: View {
                 }
                 .foregroundStyle(accent)
 
-                Text(session.title)
+                Text(store.displayTitle(session))
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(theme.textStrong)
                     .lineLimit(compact ? 2 : 3)

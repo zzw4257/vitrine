@@ -189,6 +189,53 @@ struct SessionRecord: Codable, Identifiable, Hashable {
         if messageCount <= 2 && totalTokens < 2000 { return true }
         return false
     }
+
+    /// Three-tier quality for browsing. noise = low-signal (hidden by default everywhere);
+    /// premium = substantive real work; standard = the rest. Recent-sessions prefers premium.
+    enum QualityTier: Int { case noise = 0, standard = 1, premium = 2 }
+    var qualityTier: QualityTier {
+        if isLowSignal { return .noise }
+        let substantive = messageCount >= 6 || totalTokens > 200_000
+            || filesTouched.count >= 3 || bashCommands.count >= 5
+        return substantive ? .premium : .standard
+    }
+
+    /// The raw title is unusable for browsing (empty / "（无标题会话）" / too short / a helper call).
+    var hasWeakTitle: Bool {
+        let t = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        if t.isEmpty || t == "（无标题会话）" || t.count < 4 { return true }
+        return isLowSignal
+    }
+
+    /// A structured, human-legible fallback built from what the session actually did —
+    /// "<project> · <intent-or-activity>". Instant, deterministic, and never overwrites `title`.
+    var heuristicTitle: String {
+        if let p = userPrompts.first(where: { $0.count >= 8 }) {
+            return projectName + " · " + SessionRecord.condense(p, 24)
+        }
+        return projectName + " · " + activityPhrase
+    }
+
+    /// Phase/activity inferred from structure when there's no usable prompt.
+    private var activityPhrase: String {
+        if let f = filesTouched.first {
+            let base = (f as NSString).lastPathComponent
+            return filesTouched.count > 1 ? "改动 \(base) 等 \(filesTouched.count) 文件" : "改动 \(base)"
+        }
+        if let c = bashCommands.first(where: { !$0.isEmpty }) {
+            let verb = c.split(separator: " ").first.map(String.init) ?? "命令"
+            return bashCommands.count > 1 ? "运行 \(verb) 等 \(bashCommands.count) 条命令" : "运行 \(verb)"
+        }
+        let reads = (toolCounts["Read"] ?? 0) + (toolCounts["Grep"] ?? 0) + (toolCounts["Glob"] ?? 0)
+        if reads > 0 { return "查阅代码" }
+        return "\(messageCount) 轮对话"
+    }
+
+    static func condense(_ s: String, _ n: Int) -> String {
+        var t = s.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: "\n", with: " ")
+        while t.contains("  ") { t = t.replacingOccurrences(of: "  ", with: " ") }
+        return t.count > n ? String(t.prefix(n)) + "…" : t
+    }
 }
 
 // MARK: - Projects

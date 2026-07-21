@@ -8,8 +8,15 @@ struct DashboardView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var recentSessions: [SessionRecord] {
-        let base = store.showLowSignal ? store.sessions : store.sessions.filter { !$0.isLowSignal }
-        return Array(base.prefix(sessionLayout == .list ? 9 : 15))
+        let cap = sessionLayout == .list ? 9 : 15
+        if store.showLowSignal { return Array(store.sessions.prefix(cap)) }
+        // Premium-first: show only quality sessions, but fall back to non-noise if too few.
+        let premium = store.sessions.filter { $0.qualityTier == .premium }
+        let base = premium.count >= 5 ? premium : store.sessions.filter { $0.qualityTier != .noise }
+        return Array(base.prefix(cap))
+    }
+    private var otherSessionCount: Int {
+        store.sessions.count - store.sessions.filter { $0.qualityTier == .premium }.count
     }
 
     var body: some View {
@@ -127,22 +134,20 @@ struct DashboardView: View {
                     VStack(alignment: .leading, spacing: 8) {
                         HStack(spacing: 10) {
                             SectionHeader(title: "最近会话", icon: "clock.fill", iconColor: V.sky)
-                            if store.hiddenLowSignalCount > 0 {
+                            if otherSessionCount > 0 {
                                 Button {
                                     withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
                                         store.showLowSignal.toggle()
                                     }
                                 } label: {
                                     HStack(spacing: 4) {
-                                        Image(systemName: store.showLowSignal ? "eye.slash.fill" : "line.3.horizontal.decrease.circle")
-                                        Text(store.showLowSignal
-                                             ? "隐藏 \(store.hiddenLowSignalCount) 条低信号"
-                                             : "已隐 \(store.hiddenLowSignalCount) 条低信号")
+                                        Image(systemName: store.showLowSignal ? "sparkles" : "square.stack.3d.up")
+                                        Text(store.showLowSignal ? "只看精品" : "显示全部 · \(otherSessionCount)")
                                     }
                                     .font(.system(size: 10.5, weight: .medium))
                                 }
                                 .buttonStyle(.vitrine)
-                                .help("默认屏蔽 Vitrine 自动生成的总结/蒸馏会话与极小会话")
+                                .help("默认只展示精品会话（实质性工作），隐藏低信号与琐碎会话")
                             }
                             Spacer()
                             Picker("", selection: $sessionLayout) {

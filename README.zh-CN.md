@@ -1,8 +1,15 @@
 <div align="center">
 
-<img src="docs/assets/hero.png" alt="Vitrine —— 一个聚合所有本地 AI Agent 的玻璃指挥中心" width="860">
+<img src="docs/assets/hero.png" alt="Vitrine —— 一个聚合所有本地 AI Agent 的玻璃指挥中心" width="840">
 
-# Vitrine
+<pre>
+██╗   ██╗██╗████████╗██████╗ ██╗███╗   ██╗███████╗
+██║   ██║██║╚══██╔══╝██╔══██╗██║████╗  ██║██╔════╝
+██║   ██║██║   ██║   ██████╔╝██║██╔██╗ ██║█████╗
+╚██╗ ██╔╝██║   ██║   ██╔══██╗██║██║╚██╗██║██╔══╝
+ ╚████╔╝ ██║   ██║   ██║  ██║██║██║ ╚████║███████╗
+  ╚═══╝  ╚═╝   ╚═╝   ╚═╝  ╚═╝╚═╝╚═╝  ╚═══╝╚══════╝
+</pre>
 
 **原生 macOS 的全 Agent 玻璃指挥中心。**
 <br/>A native macOS glass cockpit for every local AI agent.

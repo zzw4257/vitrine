@@ -149,6 +149,7 @@ private struct FilterChip: View {
 
 private struct SearchHitRow: View {
     @Environment(\.openSession) private var openSession
+    @Environment(AppStore.self) private var store
     var hit: SearchHit
     var session: SessionRecord
     @State private var hovering = false
@@ -158,7 +159,7 @@ private struct SearchHitRow: View {
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 8) {
                     AgentBadge(agent: session.agent, compact: true)
-                    Text(session.title).font(.system(size: 12.5, weight: .semibold)).lineLimit(1)
+                    Text(store.displayTitle(session)).font(.system(size: 12.5, weight: .semibold)).lineLimit(1)
                     Spacer()
                     Text(session.projectName).font(.system(size: 10.5)).foregroundStyle(V.textDim)
                     Text(Fmt.day(session.startedAt)).font(.system(size: 10.5)).foregroundStyle(V.textDim)

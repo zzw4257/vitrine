@@ -28,6 +28,7 @@ struct AgentBadge: View {
 struct SessionRow: View {
     @Environment(\.openSession) private var openSession
     @Environment(ThemeManager.self) private var theme
+    @Environment(AppStore.self) private var store
     var session: SessionRecord
     var showProject = true
     @State private var hovering = false
@@ -53,7 +54,7 @@ struct SessionRow: View {
                 .frame(width: 34, height: 34)
 
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(session.title)
+                    Text(store.displayTitle(session))
                         .font(.system(size: 12.5, weight: .semibold))
                         .foregroundStyle(theme.textStrong)
                         .lineLimit(1)
