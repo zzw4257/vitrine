@@ -202,7 +202,7 @@ final class AppStore {
         let text = try await AIClient.chat(
             cfg,
             system: "你是一个 AI 编程会话总结器。用中文输出两三句话的简洁总结，不要任何前后缀。",
-            user: Summarizer.aiPrompt(for: s), maxTokens: 400)
+            user: Summarizer.aiPrompt(for: s), maxTokens: 400, model: cfg.fastModel)
         summaries[s.id] = text.trimmingCharacters(in: .whitespacesAndNewlines)
         saveSummaries()
     }
@@ -237,7 +237,7 @@ final class AppStore {
                     let text = try? await AIClient.chat(
                         cfg,
                         system: "你是一个 AI 编程会话总结器。用中文输出两三句话的简洁总结，不要任何前后缀。",
-                        user: Summarizer.aiPrompt(for: s), maxTokens: 400)
+                        user: Summarizer.aiPrompt(for: s), maxTokens: 400, model: cfg.fastModel)
                     guard let text, !text.isEmpty else { return nil }
                     return (s.id, text.trimmingCharacters(in: .whitespacesAndNewlines))
                 }
@@ -305,7 +305,7 @@ final class AppStore {
                     let out = try? await AIClient.chat(
                         cfg,
                         system: "你给一个 AI 编程会话起标题。只输出 ≤14 字的中文短标题，格式「项目 · 要点」，不要引号、不要解释。",
-                        user: facts, maxTokens: 60, timeout: 60)
+                        user: facts, maxTokens: 60, timeout: 60, model: cfg.fastModel)
                     guard let out, !out.isEmpty else { return nil }
                     let clean = out.trimmingCharacters(in: .whitespacesAndNewlines)
                         .replacingOccurrences(of: "\n", with: " ")

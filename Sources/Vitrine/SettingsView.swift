@@ -286,7 +286,7 @@ private struct AISettingsPane: View {
             // Smart titles — non-destructive title layer
             GlassCard(tint: V.violet) {
                 VStack(alignment: .leading, spacing: 12) {
-                    stepHeader(4, "智能标题", "弱标题（空/无标题/难懂）默认已用结构启发式修复；AI 深度标题可选，均不覆盖原始标题")
+                    stepHeader(4, "智能标题", "弱标题默认已用结构启发式修复；AI 标题可选，默认用 Haiku（快而省），均不覆盖原始标题")
                     Toggle(isOn: $store.useSmartTitles) {
                         Text("对所有会话使用智能标题").font(.system(size: 12, weight: .medium))
                     }

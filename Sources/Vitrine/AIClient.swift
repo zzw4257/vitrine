@@ -124,6 +124,9 @@ struct AIConfig: Sendable {
     var apiKey: String
     var model: String
     var isLocalClaude: Bool { providerID == "local-claude" }
+    /// Cheap/fast model for high-volume helper tasks (titles, summaries). Local Claude defaults to
+    /// Haiku; cloud keeps the configured model (a specific cheap variant can't be assumed there).
+    var fastModel: String { isLocalClaude ? "claude-haiku-4-5-20251001" : model }
 }
 
 enum AIError: LocalizedError {
@@ -167,18 +170,23 @@ enum AIClient {
     }
 
     /// One-shot chat completion. For localClaude, shells out to `claude -p`.
+    /// `model` overrides the config's model for this call (used to force a cheap model like Haiku
+    /// on high-volume helper tasks). nil = use the configured model.
     static func chat(_ cfg: AIConfig, system: String, user: String,
-                     maxTokens: Int = 2000, timeout: TimeInterval = 180) async throws -> String {
+                     maxTokens: Int = 2000, timeout: TimeInterval = 180,
+                     model: String? = nil) async throws -> String {
+        let override = (model?.isEmpty == false) ? model : nil
         if cfg.isLocalClaude {
             let claude = CLI.detectTools().first { $0.name == "claude" }?.path
             guard let claude else { throw AIError.notConfigured("未检测到 claude CLI") }
             let prompt = system.isEmpty ? user : system + "\n\n" + user
-            let model = cfg.model.isEmpty ? "claude-haiku-4-5-20251001" : cfg.model
-            return try await CLI.runClaude(prompt, claudePath: claude, model: model, timeout: timeout)
+            let m = override ?? (cfg.model.isEmpty ? "claude-haiku-4-5-20251001" : cfg.model)
+            return try await CLI.runClaude(prompt, claudePath: claude, model: m, timeout: timeout)
         }
 
+        let m = override ?? cfg.model
         let base = cfg.endpoint.trimmingCharacters(in: CharacterSet(charactersIn: " /"))
-        guard !base.isEmpty, !cfg.model.isEmpty else { throw AIError.notConfigured("请先在设置里配置 API") }
+        guard !base.isEmpty, !m.isEmpty else { throw AIError.notConfigured("请先在设置里配置 API") }
         guard let url = URL(string: base + "/chat/completions") else { throw AIError.notConfigured("地址格式非法") }
 
         var req = URLRequest(url: url)
@@ -187,7 +195,7 @@ enum AIClient {
         if !cfg.apiKey.isEmpty { req.setValue("Bearer \(cfg.apiKey)", forHTTPHeaderField: "Authorization") }
         req.timeoutInterval = timeout
         let body: [String: Any] = [
-            "model": cfg.model,
+            "model": m,
             "messages": [
                 ["role": "system", "content": system],
                 ["role": "user", "content": user],
