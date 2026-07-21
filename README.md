@@ -1,21 +1,15 @@
-<div align="center"><pre>
-██╗   ██╗██╗████████╗██████╗ ██╗███╗   ██╗███████╗
-██║   ██║██║╚══██╔══╝██╔══██╗██║████╗  ██║██╔════╝
-██║   ██║██║   ██║   ██████╔╝██║██╔██╗ ██║█████╗
-╚██╗ ██╔╝██║   ██║   ██╔══██╗██║██║╚██╗██║██╔══╝
- ╚████╔╝ ██║   ██║   ██║  ██║██║██║ ╚████║███████╗
-  ╚═══╝  ╚═╝   ╚═╝   ╚═╝  ╚═╝╚═╝╚═╝  ╚═══╝╚══════╝
-        a glass cockpit for every local AI agent
-</pre></div>
+<div align="center">
 
-<p align="center"><strong>6 CLI agents · one command center · local-first · read-only · zero third-party deps</strong></p>
+<img src="docs/assets/hero.png" alt="Vitrine — a glass cockpit for every local AI agent" width="860">
 
-<p align="center">
-把散落在 <code>~/.claude</code> · <code>~/.codex</code> · <code>~/.gemini</code> · <code>~/.codeium</code> · opencode · Cursor 里的
-成百上千个 AI-agent 会话，聚合成一个玻璃质感、可检索、可视化、可调配的统一指挥中心。
-</p>
+# Vitrine
 
-<p align="center">
+**A native macOS glass cockpit for every local AI agent.**
+<br/>把所有本地 AI-agent 会话，聚合成一个玻璃质感的统一指挥中心。
+
+<p><strong>6 agents · one command center · local-first · read-only · zero third-party deps</strong></p>
+
+<p>
   <img alt="platform" src="https://img.shields.io/badge/macOS-26%2B-000000?logo=apple&logoColor=white">
   <img alt="swift" src="https://img.shields.io/badge/Swift-6-F05138?logo=swift&logoColor=white">
   <img alt="ui" src="https://img.shields.io/badge/SwiftUI-Liquid%20Glass-1E90FF">
@@ -24,126 +18,131 @@
   <img alt="deps" src="https://img.shields.io/badge/dependencies-0-brightgreen">
 </p>
 
-<p align="center">
-  <a href="#快速开始--quick-start"><strong>快速开始</strong></a> ·
-  <a href="#支持的-agent-源--agent-sources"><strong>Agent 源</strong></a> ·
-  <a href="#面板闭环--panels"><strong>面板</strong></a> ·
-  <a href="#主题系统--themes"><strong>主题</strong></a> ·
-  <a href="PRIMITIVE.md"><strong>🧬 原语 / Primitive</strong></a> ·
-  <a href="#架构与设计要点--architecture"><strong>架构</strong></a>
+<p>
+  <strong>English</strong> ·
+  <a href="README.zh-CN.md">简体中文</a>
+  &nbsp;|&nbsp;
+  <a href="#quick-start"><strong>Quick Start</strong></a> ·
+  <a href="#agent-sources"><strong>Agents</strong></a> ·
+  <a href="#panels"><strong>Panels</strong></a> ·
+  <a href="#themes"><strong>Themes</strong></a> ·
+  <a href="PRIMITIVE.md"><strong>🧬 Primitive</strong></a>
 </p>
+
+</div>
 
 ---
 
-**Vitrine** 是一个原生 macOS 应用（纯 SwiftUI + Liquid Glass，macOS 26+，**零第三方依赖**）。
-你每天在终端里用 Claude Code、Codex、Gemini CLI、opencode……跑出的会话散落在各自的目录里，谁也不认识谁。
-Vitrine 只读地把它们**全部**扫进来，按项目重组，告诉你：*哪个 agent、在哪个项目、什么时候、做了什么、烧了多少 token、用了哪个模型* —— 并让你检索它、迁移它的记忆、蒸馏它的技能、再从这里把下一个任务派出去。
+Every local AI-agent CLI already records everything it does, then buries it in its own directory where nothing else can see it. Vitrine reads all of it — Claude Code, Codex, Gemini CLI, opencode, Cursor, Windsurf — regroups it by project, and answers one question at a glance: **which agent, in which project, when, did what, at what token cost, on which model.** From there you search it, carry its memory forward, distill its skills, and launch the next task.
 
-> 🧬 这个仓库还开源了一份特别的东西：[**PRIMITIVE.md**](PRIMITIVE.md) —— 不是设计文档，而是 Vitrine 的**生成原语**。
-> 它把"这个产品的本质是什么、每块的重点在哪"压缩成一份可以直接喂给 agent 的种子，让另一个 agent 用它长出**另一个** Vitrine。我的实现只是其中一种实现。
+Pure SwiftUI + Liquid Glass on macOS 26. Everything runs locally, offline, read-only. No telemetry, no third-party dependencies.
 
-## 支持的 Agent 源 · Agent sources
+> 🧬 This repository ships a companion artifact: [**PRIMITIVE.md**](PRIMITIVE.md) — the *generative primitive* behind Vitrine. It compresses the product's essence into a seed you can hand to an agent, which then regrows another Vitrine in any stack. This macOS build is the first tree from that seed.
 
-只读扫描，各家格式不同，Vitrine 统一成同一种"会话"。
+## Agent sources
 
-| Agent | 来源 | 提取 |
-|-------|------|------|
-| **Claude Code** | `~/.claude/projects/**/*.jsonl` | cwd·分支·模型·逐轮 token·工具/命令·提问 |
-| **Codex** | `~/.codex/sessions/**/rollout-*.jsonl` | cwd·model·token_count·shell 命令·子代理 |
-| **Gemini CLI** | `~/.gemini/tmp/<sha256(cwd)>/chats/*.json` | 每条消息的 model + tokens（哈希目录反查项目） |
-| **opencode** | `~/.local/share/opencode/storage/{session,message}` | 会话元数据·消息计数 |
-| **Cursor** | `~/.cursor/ai-tracking/ai-code-tracking.db` | conversation_summaries（title/overview/model，只读 SQLite） |
-| **Windsurf** | `~/.codeium/windsurf/code_tracker/` | 活动足迹（转录本地加密，仅还原触碰的文件） |
+Six on-disk formats, one unified `Session`. Reading is strictly local and read-only.
 
-<sub>诚实原则：Windsurf 的对话在本地加密（实测 8.0 bits/byte 熵），无法还原转录 —— Vitrine 只呈现能诚实还原的文件足迹，不编造内容。</sub>
+| Agent | Source | Extracted |
+|-------|--------|-----------|
+| **Claude Code** | `~/.claude/projects/**/*.jsonl` | cwd · branch · model · per-turn tokens · tools/commands · prompts |
+| **Codex** | `~/.codex/sessions/**/rollout-*.jsonl` | cwd · model · token_count · shell commands · subagents |
+| **Gemini CLI** | `~/.gemini/tmp/<sha256(cwd)>/chats/*.json` | per-message model + tokens (hashed dir resolved back to the project) |
+| **opencode** | `~/.local/share/opencode/storage/{session,message}` | session metadata · message counts |
+| **Cursor** | `~/.cursor/ai-tracking/ai-code-tracking.db` | conversation summaries (title/overview/model, read-only SQLite) |
+| **Windsurf** | `~/.codeium/windsurf/code_tracker/` | activity footprint (transcripts are encrypted locally; Vitrine recovers touched files only) |
 
-## 面板闭环 · Panels
+<sub>Honesty first: Windsurf encrypts its transcripts on disk (measured ~8.0 bits/byte of entropy), so Vitrine surfaces the recoverable file footprint and labels it plainly rather than fabricating content.</sub>
 
-| 面板 | 能力 |
-|------|------|
-| **总览** | 项目/会话/消息/**总吞吐 tokens**/活跃天数聚合；半年活跃热力图（悬停读数）；**构成甜甜圈**可切 Agent↔模型、消息↔tokens 两个维度（交互式：悬停扇区弹出、圆心实时读数）；最近会话支持**列表 / 瀑布流 / 方格**三种展示 |
-| **项目** | 一个项目下多 Agent 贡献的五视角：**织线**（每 agent 一条泳道，空隙即贡献中断 —— 解决"一个项目多对话、贡献不连续"）、**热力**、**构成**、**节律**、**AI 洞察** |
-| **检索** | SQLite **FTS5 三元组**全文索引，中文友好；<3 字自动降级 LIKE；命中词高亮；按 agent 过滤 |
-| **记忆工坊** | 跨 agent 记忆**提取 / 合并 / 迁移**：CLAUDE.md ⇄ AGENTS.md ⇄ GEMINI.md ⇄ .cursorrules ⇄ .windsurfrules；写入前自动 `.bak` 备份 |
-| **技能蒸馏** | 从项目全部会话行为蒸馏规范/命令/工作流 → 可编辑 `SKILL.md`；启发式即时或 AI 深度蒸馏（可选**侧重**：全面/规范/命令/工作流）；一键注入 **7 类目标**（Claude 技能目录、Codex/Gemini 全局、项目级 AGENTS/.cursorrules/.windsurfrules） |
-| **任务调配** | 选项目 + 选 agent + 注入项目记忆简报（`.vitrine-briefing.md`）→ 生成启动命令一键在终端拉起；实时检测运行中的 agent 进程 |
+## How it works
 
-<sub>浏览列表与检索**默认屏蔽低信号会话**（工具自身产生的总结/蒸馏元会话、极小会话），一键可展开 —— 但绝不影响任何统计聚合。</sub>
-
-## 30 秒看懂原理 · How it works
-
-```
-  ~/.claude  ~/.codex  ~/.gemini  ~/.codeium  opencode  ~/.cursor
-      │         │         │          │           │         │
-      └─────────┴────┬────┴──────────┴───────────┴─────────┘
-                     ▼
-        [ 增量扫描 ]  mtime+size 缓存 · 流式解析 · 只读
-                     ▼
-        [ 统一 SessionRecord ]  agent·项目·时间·token·模型·工具
-                     ▼
-   ┌─────────────┬──────────────┬─────────────┬──────────────┐
-   ▼             ▼              ▼             ▼              ▼
- 按项目聚合    FTS5 索引      记忆提取       技能蒸馏        任务简报
- (织线/热力)   (毫秒检索)    (跨 agent 迁移)  (→ SKILL.md)   (→ 终端拉起)
+```mermaid
+flowchart LR
+    subgraph SRC["Local agent logs · read-only"]
+      direction TB
+      C["Claude Code"]; X["Codex"]; G["Gemini CLI"]
+      O["opencode"]; U["Cursor"]; W["Windsurf"]
+    end
+    SRC --> SCAN["Incremental scanners<br/>mtime+size cache · pure-lexical paths"]
+    SCAN --> REC[("Unified SessionRecord<br/>agent · project · tokens · models · tools")]
+    REC --> LENS["Per-project lenses<br/>braid · heat · composition · rhythm · AI insight"]
+    REC --> FTS["FTS5 full-text search<br/>CJK-friendly · millisecond"]
+    REC --> MEM["Cross-agent memory transfer"]
+    REC --> SKILL["Skill distillation → SKILL.md"]
+    REC --> DISP["Task dispatch → real terminal"]
 ```
 
-## 主题系统 · Themes
+## Panels
 
-主题携带一整套结构令牌（表面材质 / 背景形态 / 圆角 / 边框 / 排版 / 纹理），是结构不同的设计，不是配色替换：
+| Panel | What it does |
+|-------|--------------|
+| **Overview** | Aggregate stats · half-year activity heatmap with hover readouts · an interactive composition donut that switches Agent↔model and messages↔throughput (hover a slice to pop it out, the hole reads live) · recent sessions as **list / masonry / grid** |
+| **Projects** | Five lenses over one project's many contributors: **braid** (a lane per agent — the gaps show exactly when each one paused and who took over), heatmap, composition, rhythm, and AI insight |
+| **Search** | SQLite **FTS5 trigram** index, CJK-friendly, sub-3-char queries fall back to LIKE, hit highlighting, agent filters |
+| **Memory Studio** | Extract, merge, and transfer memory across agents — CLAUDE.md ⇄ AGENTS.md ⇄ GEMINI.md ⇄ .cursorrules ⇄ .windsurfrules — with an automatic `.bak` before every write |
+| **Skill Distillery** | Distill conventions, commands, and workflows from real session behavior into an editable `SKILL.md`; heuristic or AI-deep (with a focus: all / conventions / commands / workflow); inject into **7 targets** across Claude, Codex, Gemini, Cursor, and Windsurf |
+| **Dispatch** | Pick a project + an agent, inject a project briefing (`.vitrine-briefing.md`), generate the launch command, and fire it in a real terminal — with live detection of running agent processes |
 
-- **Vitrine 玻璃系**（星云·落日·深海·苔原·石墨）：Liquid Glass 卡片 + 漂移极光 + 各自的**背景纹理**（点阵/斜纹/等高线/十字网/网格）+ 缓慢漂浮的**环境光点**。
-- **Apple**（深/浅）：vibrancy 半透明 + 顶部亮边 + 柔和投影 + 15px squircle + 平静桌面式 wash + systemBlue。
-- **GitHub**（深/浅）：Primer 纯平画布 + 实心卡 + 1px 硬边框 + 8px 圆角 + 真实贡献图绿阶热力，无玻璃模糊。
+<sub>Browse lists and search hide low-signal sessions (the tool's own summary/distill meta-calls, trivial runs) by default and expand on one click. Aggregates always count everything.</sub>
 
-外观设置里还有玻璃通透度 / 边框分离度 / 极光活跃度三个实时旋钮。全部动效兼容"减弱动效"辅助功能设置。
+## Themes
 
-## 快速开始 · Quick Start
+A theme carries a full set of structural tokens — surface material, backdrop, corner radius, borders, typography, texture. Switching themes reshapes the whole design language down to the material and type, well past a palette swap.
+
+- **Vitrine family** (Nebula · Sunset · Ocean · Tundra · Graphite): Liquid Glass cards over a drifting aurora, each with its own **backdrop pattern** (dot grid, diagonal, contour, plus-grid, mesh) and slow **ambient motes**.
+- **Apple** (dark & light): vibrancy material, bright light-catching top edges, soft shadows, 15px squircles, a calm desktop-style wash, systemBlue.
+- **GitHub** (dark & light): Primer's flat canvas, solid cards with 1px hairline borders, 8px corners, real contribution-green heatmaps, no glass blur.
+
+Appearance settings add live glass-opacity, border-strength, and aurora-intensity dials. All motion honors the system Reduce Motion setting.
+
+## Quick Start
 
 ```sh
 git clone https://github.com/zzw4257/vitrine.git
 cd vitrine
-./build.sh            # swift build -c release + 组装 Vitrine.app（含生成的棱镜图标）
+./build.sh            # swift build -c release + assemble Vitrine.app (with a generated prism icon)
 open build/Vitrine.app
 ```
 
-要求 **Xcode 26 / Swift 6 / macOS 26+**。首次启动会播放一段仪式感开屏引导（扫描足迹 → 选色调 → 接入 AI → 就绪）。
-或直接从 [**Releases**](https://github.com/zzw4257/vitrine/releases) 下载打包好的 `Vitrine.app.zip`（ad-hoc 签名，首次打开右键 → 打开）。
+Requires **Xcode 26 / Swift 6 / macOS 26+**. First launch plays a short onboarding (scan → theme → connect AI → ready).
 
-## 🧬 原语 · The Primitive
+Prefer a binary? Grab `Vitrine.app.zip` from [**Releases**](https://github.com/zzw4257/vitrine/releases) (ad-hoc signed — first open: right-click → Open).
 
-在 AI 时代，一个产品最有价值的往往不是代码，而是**它的原语** —— 那套让它成为它的、可以被重新生长的本质。
+## 🧬 The Primitive
 
-[**PRIMITIVE.md**](PRIMITIVE.md) 就是 Vitrine 的这份原语：核心理念、不可动摇的不变量、每个概念构件的**刻画重点**、美学与动效哲学，以及一段**可直接使用的再生提示词**。把它交给任意 agent，就能在**任意技术栈**里长出另一个 Vitrine —— 界面可以完全不同，灵魂一致。这份文件本身是这个开源项目独立的一部分。
+In the AI era, a product's most portable value is its **primitive** — the essence that makes it what it is and lets it be regrown.
 
-## 架构与设计要点 · Architecture
+[**PRIMITIVE.md**](PRIMITIVE.md) is exactly that for Vitrine: the core idea, the load-bearing invariants, the one thing each concept must nail, the aesthetic and motion philosophy, and a ready-to-paste **regeneration prompt**. Hand it to any capable agent and it grows a new Vitrine in a stack of your choice — a different skin, the same soul. The file stands on its own as part of this open-source release.
+
+## Architecture
 
 <details>
-<summary><strong>展开：扫描 / 索引 / 渲染 / 隐私</strong></summary>
+<summary><strong>Scanning · indexing · rendering · privacy</strong></summary>
 
-- **增量扫描**：按文件 mtime+size 缓存（`~/Library/Application Support/Vitrine/scan-cache-v2.json`），tombstone 记录无会话文件；首扫全量、之后秒开、新会话流式增量入表。
-- **哈希项目反查**：Gemini 用 `sha256(cwd)` 命名目录，Vitrine 对已发现的所有项目路径求哈希建反查表还原归属。
-- **Token 口径**：`总吞吐 = input + output + cache_read + cache_creation`。Agent 每轮从缓存重读整个上下文，只算 output 会严重低估 —— 单个大会话动辄上亿 token。
-- **纯词法路径处理**：刻意不用 `standardizingPath`（它会 stat 文件系统、触发 Documents 授权弹窗），避免无谓的 TCC 打扰。
-- **玻璃 + 极光 + 纹理**：`GlassEffectContainer` / `glassEffect` + `Canvas` 手绘漂移极光、背景纹理与环境光点；交互式图表（甜甜圈/条形/热力/节律）悬停高亮、圆心实时读数。
-- **隐私**：一切**只读、离线、本地**。唯一的写入是你在记忆工坊/技能蒸馏里显式发起的，且写前 `.bak` 备份。无遥测、无网络（除非你自己配置了云端 AI 服务商）。
+- **Incremental scan** — cached by file mtime+size (`~/Library/Application Support/Vitrine/scan-cache-v2.json`) with tombstones for empty files; the first scan is full, every scan after is instant, new sessions stream in.
+- **Hashed-project resolution** — Gemini names directories `sha256(cwd)`; Vitrine hashes every known project path to build a reverse lookup and restore ownership.
+- **Token accounting** — `throughput = input + output + cache_read + cache_creation`. Agents re-read the whole context from cache each turn, so output-only counting under-reports by orders of magnitude; a single large session runs into the hundreds of millions.
+- **Pure-lexical paths** — Vitrine avoids `standardizingPath` (it stats the filesystem and trips the macOS Documents permission prompt) and normalizes paths lexically instead.
+- **Glass + aurora + texture** — `GlassEffectContainer` / `glassEffect` plus a `Canvas`-drawn aurora, backdrop pattern, and ambient motes; every chart (donut, bars, heatmap, rhythm) highlights on hover with a live readout.
+- **Privacy** — read-only, offline, local. The only writes are the ones you start in Memory Studio or the Distillery, each backed up first. No telemetry, no network unless you configure a cloud AI provider yourself.
 
 </details>
 
 <details>
-<summary><strong>展开：AI 接入（云端 / 本地 llama.cpp / 本地 Claude CLI）</strong></summary>
+<summary><strong>AI integration (cloud · local llama.cpp · local Claude CLI)</strong></summary>
 
-会话总结、技能深度蒸馏、项目洞察都走同一套 `AIClient`：
+Summaries, deep skill distillation, and project insight all route through one `AIClient`:
 
-- **云端 OpenAI 兼容**（OpenAI/DeepSeek/Kimi/OpenRouter/Together/Groq/自定义）：`GET /models` 拉列表、`POST /chat/completions`、两步测试；Key 首次从 `OPENAI_API_KEY` 或 `~/.codex/auth.json` 预填。
-- **本地 llama.cpp**：Ollama（`GET /api/tags` 列本地模型、`POST /api/pull` **流式拉取带进度**、一键 `ollama serve`）与 llama-server（指定 GGUF + 端口一键拉起、轮询 `/health`）。
-- **本地 Claude CLI**：直接调用已登录的 `claude -p`，无需 API Key。
+- **Cloud, OpenAI-compatible** (OpenAI/DeepSeek/Kimi/OpenRouter/Together/Groq/custom): `GET /models`, `POST /chat/completions`, two-step test; the key pre-fills from `OPENAI_API_KEY` or `~/.codex/auth.json`.
+- **Local llama.cpp** — Ollama (`GET /api/tags`, streaming `POST /api/pull` with a progress bar, one-click `ollama serve`) and llama-server (point at a GGUF + port, launch, poll `/health`).
+- **Local Claude CLI** — calls your logged-in `claude -p` directly, no API key.
 
 </details>
 
 <details>
-<summary><strong>展开：调试入口（环境变量）</strong></summary>
+<summary><strong>Debug entry points (environment variables)</strong></summary>
 
-直接运行 bundle 内二进制并设环境变量可直达指定页面（便于截图/联调）：
+Run the bundled binary with environment variables to jump straight to a screen (handy for screenshots):
 
 ```sh
 BIN=build/Vitrine.app/Contents/MacOS/Vitrine
@@ -151,7 +150,7 @@ env VITRINE_SECTION=search VITRINE_QUERY=triton "$BIN"
 env VITRINE_SECTION=dashboard VITRINE_COMPOSITION=model "$BIN"
 ```
 
-`VITRINE_SECTION` ∈ `dashboard|projects|search|memory|distillery|dispatch`；其它：`VITRINE_QUERY` / `VITRINE_PROJECT` / `VITRINE_PERSPECTIVE` / `VITRINE_COMPOSITION=model` / `VITRINE_OPEN_SETTINGS=1` / `VITRINE_FLOAT=1`。
+`VITRINE_SECTION` ∈ `dashboard|projects|search|memory|distillery|dispatch`; also `VITRINE_QUERY`, `VITRINE_PROJECT`, `VITRINE_PERSPECTIVE`, `VITRINE_COMPOSITION=model`, `VITRINE_OPEN_SETTINGS=1`, `VITRINE_FLOAT=1`.
 
 </details>
 
