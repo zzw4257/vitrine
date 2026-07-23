@@ -97,6 +97,8 @@ struct SessionDetailView: View {
     @State private var loading = true
     @State private var summarizing = false
     @State private var summaryError: String?
+    @State private var editingScope = false
+    @State private var scopeDraft = ""
 
     var body: some View {
         ZStack {
@@ -146,8 +148,11 @@ struct SessionDetailView: View {
                 .font(.system(size: 17, weight: .bold, design: .rounded))
                 .lineLimit(2)
             if store.displayTitle(session) != session.title {
-                Text("原始标题：\(session.title)")
-                    .font(.system(size: 10.5)).foregroundStyle(theme.textFaint).lineLimit(1)
+                HStack(spacing: 8) {
+                    Text("原始标题：\(session.title)")
+                        .font(.system(size: 10.5)).foregroundStyle(theme.textFaint).lineLimit(1)
+                    TitleChoiceControl(session: session)
+                }
             }
             HStack(spacing: 8) {
                 GlassChip(text: session.projectName, color: V.violet, systemImage: "folder")
@@ -159,6 +164,11 @@ struct SessionDetailView: View {
                     GlassChip(text: Fmt.tokens(session.totalTokens) + (session.tokensEstimated ? "~" : "") + " tok",
                               color: V.amber, systemImage: "bolt")
                 }
+                if let cost = session.estimatedCost(fallbackCacheHitRate: store.sessions.averageCacheHitRate) {
+                    GlassChip(text: CostFmt.usd(cost.usd) + (cost.estimated ? "~" : ""),
+                              color: V.mint, systemImage: "dollarsign.circle")
+                        .help("按参考单价估算" + (cost.estimated ? "，该来源无缓存明细，已按平均缓存命中率折算" : "，使用该会话真实的缓存命中数据"))
+                }
                 if let b = session.gitBranch {
                     GlassChip(text: b, color: V.rose, systemImage: "arrow.triangle.branch")
                 }
@@ -167,7 +177,42 @@ struct SessionDetailView: View {
                     if !label.isEmpty { GlassChip(text: label, color: ModelInfo.vendorColor(label)) }
                 }
             }
+            workingScopeRow
         }
+    }
+
+    /// Manual, optional tag: "the real work here happened in this sub-path" — for monorepos
+    /// invoked from a parent directory. Never inferred; purely for the user's own reverse-index.
+    private var workingScopeRow: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "arrow.turn.down.right")
+                .font(.system(size: 9, weight: .semibold)).foregroundStyle(V.textDim)
+            if editingScope {
+                TextField("例如 apps/web 或 packages/core", text: $scopeDraft)
+                    .textFieldStyle(.plain).font(.vMono).frame(maxWidth: 260)
+                    .padding(.horizontal, 8).padding(.vertical, 4)
+                    .vitrineGlass(corner: 7, tintStrength: 0.3)
+                    .onSubmit(commitScope)
+                Button("保存") { commitScope() }.buttonStyle(.vitrine)
+                Button("取消") { editingScope = false }.buttonStyle(.plain)
+                    .font(.system(size: 10.5)).foregroundStyle(V.textDim)
+            } else if let scope = store.scopeTags[session.id] {
+                GlassChip(text: "工作范围：\(scope)", color: V.mint, systemImage: "folder.badge.gearshape")
+                Button { scopeDraft = scope; editingScope = true } label: {
+                    Image(systemName: "pencil").font(.system(size: 9))
+                }.buttonStyle(.plain).foregroundStyle(V.textDim)
+            } else {
+                Button { scopeDraft = ""; editingScope = true } label: {
+                    Text("标记实际工作目录…").font(.system(size: 10.5)).foregroundStyle(V.textDim)
+                }.buttonStyle(.plain)
+            }
+        }
+        .help("这次会话是从上层目录启动的，但实际改动集中在某个子目录？标记后可用该子路径搜索到它。")
+    }
+
+    private func commitScope() {
+        store.setScopeTag(scopeDraft, for: session.id)
+        editingScope = false
     }
 
     private var hasAISummary: Bool { store.summaries[session.id] != nil }
@@ -302,6 +347,37 @@ struct SessionDetailView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .scrollIndicators(.never)
+    }
+}
+
+/// Fine-grained, per-session override of which title wins here — independent of the global
+/// "use smart titles everywhere" toggle in Settings. "默认" clears the override.
+private struct TitleChoiceControl: View {
+    @Environment(AppStore.self) private var store
+    var session: SessionRecord
+
+    private var current: AppStore.TitleOverride? { store.titleOverrides[session.id] }
+
+    var body: some View {
+        HStack(spacing: 3) {
+            choiceButton(nil, label: "默认")
+            choiceButton(.raw, label: "原标题")
+            choiceButton(.smart, label: "智能标题")
+        }
+        .font(.system(size: 9.5, weight: .medium))
+    }
+
+    private func choiceButton(_ choice: AppStore.TitleOverride?, label: String) -> some View {
+        let selected = current == choice
+        return Button {
+            store.setTitleOverride(choice, for: session.id)
+        } label: {
+            Text(label)
+                .padding(.horizontal, 7).padding(.vertical, 2)
+                .background(selected ? V.violet.opacity(0.22) : Color.primary.opacity(0.06), in: .capsule)
+                .foregroundStyle(selected ? V.violet : .secondary)
+        }
+        .buttonStyle(.plain)
     }
 }
 

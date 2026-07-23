@@ -29,7 +29,7 @@ struct Keybinding: Codable, Hashable {
 }
 
 enum KeyAction: String, CaseIterable, Identifiable {
-    case dashboard, projects, search, memory, distillery, dispatch, refresh, settings
+    case dashboard, projects, search, memory, distillery, dispatch, pinned, refresh, settings
     var id: String { rawValue }
 
     var title: String {
@@ -40,6 +40,7 @@ enum KeyAction: String, CaseIterable, Identifiable {
         case .memory: "跳转 · 记忆工坊"
         case .distillery: "跳转 · 技能蒸馏"
         case .dispatch: "跳转 · 任务调配"
+        case .pinned: "跳转 · 已置顶"
         case .refresh: "重新扫描"
         case .settings: "打开设置"
         }
@@ -53,6 +54,7 @@ enum KeyAction: String, CaseIterable, Identifiable {
         case .memory: .memory
         case .distillery: .distillery
         case .dispatch: .dispatch
+        case .pinned: .pinned
         default: nil
         }
     }
@@ -66,6 +68,7 @@ enum KeyAction: String, CaseIterable, Identifiable {
         case .memory: return .init(key: "4", modifiers: cmd)
         case .distillery: return .init(key: "5", modifiers: cmd)
         case .dispatch: return .init(key: "6", modifiers: cmd)
+        case .pinned: return .init(key: "7", modifiers: cmd)
         case .refresh: return .init(key: "r", modifiers: cmd)
         case .settings: return .init(key: ",", modifiers: cmd)
         }

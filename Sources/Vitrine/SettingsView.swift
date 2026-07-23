@@ -9,13 +9,16 @@ struct SettingsView: View {
     }()
 
     enum Tab: String, CaseIterable, Identifiable {
-        case appearance, ai, shortcuts
+        case appearance, ai, sync, shortcuts
         var id: String { rawValue }
         var title: String {
-            switch self { case .appearance: "外观"; case .ai: "AI"; case .shortcuts: "快捷键" }
+            switch self { case .appearance: "外观"; case .ai: "AI"; case .sync: "多设备同步"; case .shortcuts: "快捷键" }
         }
         var symbol: String {
-            switch self { case .appearance: "paintbrush"; case .ai: "sparkles"; case .shortcuts: "command" }
+            switch self {
+            case .appearance: "paintbrush"; case .ai: "sparkles"
+            case .sync: "arrow.triangle.2.circlepath.circle"; case .shortcuts: "command"
+            }
         }
     }
 
@@ -30,6 +33,7 @@ struct SettingsView: View {
                         switch tab {
                         case .appearance: AppearanceSettings()
                         case .ai: AISettingsPane()
+                        case .sync: SyncSettingsPane()
                         case .shortcuts: ShortcutsSettings()
                         }
                     }
@@ -299,6 +303,23 @@ private struct AISettingsPane: View {
                         }
                     }
                     .toggleStyle(.switch).controlSize(.small)
+                    Toggle(isOn: $store.retitleAllSessions) {
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text("扩大范围：对全部会话尝试智能标题").font(.system(size: 12, weight: .medium))
+                            Text("默认只重写「弱标题」（空/占位/过短）；开启后连原始标题非空但读不出重点的会话也会补一个")
+                                .font(.system(size: 10)).foregroundStyle(theme.textDim)
+                        }
+                    }
+                    .toggleStyle(.switch).controlSize(.small)
+                    HStack(spacing: 6) {
+                        GlassChip(text: "共 \(store.sessions.count)", color: .secondary)
+                        GlassChip(text: "已生成 \(store.smartTitles.count)", color: V.teal)
+                        GlassChip(text: "待生成 \(store.pendingTitleCount)", color: V.amber)
+                        if store.noSignalTitleCount > 0 {
+                            GlassChip(text: "无实质内容 \(store.noSignalTitleCount)", color: .secondary)
+                                .help("这些会话没有可用的提问/文件/命令可提炼，保持诚实的启发式标题，不会强行生成")
+                        }
+                    }
                     HStack(spacing: 10) {
                         Button {
                             Task { await store.generateSmartTitles() }
@@ -483,7 +504,7 @@ private struct AISettingsPane: View {
     }
 }
 
-private struct Field: View {
+struct Field: View {
     var label: String
     @Binding var text: String
     var placeholder: String

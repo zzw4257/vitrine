@@ -96,7 +96,7 @@ struct VitrineCommands: Commands {
 // MARK: - Navigation
 
 enum Section: String, CaseIterable, Identifiable {
-    case dashboard, projects, search, memory, distillery, dispatch
+    case dashboard, projects, search, memory, distillery, dispatch, pinned
     var id: String { rawValue }
 
     var title: String {
@@ -107,6 +107,7 @@ enum Section: String, CaseIterable, Identifiable {
         case .memory: "记忆工坊"
         case .distillery: "技能蒸馏"
         case .dispatch: "任务调配"
+        case .pinned: "已置顶"
         }
     }
 
@@ -118,9 +119,15 @@ enum Section: String, CaseIterable, Identifiable {
         case .memory: "brain"
         case .distillery: "flask"
         case .dispatch: "paperplane"
+        case .pinned: "pin.fill"
         }
     }
 }
+
+/// Splash → (first run only) onboarding → the real app. Each phase is the ONLY thing in the view
+/// tree while active — the sidebar/content aren't constructed during splash, so it reads as a
+/// dedicated pre-app moment rather than a mask sitting on top of an already-built interface.
+private enum LaunchPhase { case splash, onboarding, ready }
 
 struct RootView: View {
     @Environment(AppStore.self) private var store
@@ -128,24 +135,37 @@ struct RootView: View {
     @Environment(UIState.self) private var ui
     @State private var selectedSession: SessionRecord?
     @State private var userCollapsed = false
-    @State private var showOnboarding = !Onboarding.seen || ProcessInfo.processInfo.environment["VITRINE_ONBOARD"] == "1"
+    @State private var phase: LaunchPhase = ProcessInfo.processInfo.environment["VITRINE_SECTION"] != nil
+        ? .ready : .splash
     @Namespace private var sidebarNS
+
+    private var forceOnboarding: Bool { ProcessInfo.processInfo.environment["VITRINE_ONBOARD"] == "1" }
 
     var body: some View {
         @Bindable var ui = ui
-        ZStack {
-            mainInterface
-            if showOnboarding {
+        Group {
+            switch phase {
+            case .splash:
+                SplashView {
+                    let goToOnboarding = !Onboarding.seen || forceOnboarding
+                    withAnimation(.spring(response: 0.5, dampingFraction: 0.85)) {
+                        phase = goToOnboarding ? .onboarding : .ready
+                    }
+                }
+                .transition(.opacity)
+            case .onboarding:
                 OnboardingView(onDone: {
-                    withAnimation(.spring(response: 0.5, dampingFraction: 0.85)) { showOnboarding = false }
+                    withAnimation(.spring(response: 0.5, dampingFraction: 0.85)) { phase = .ready }
                 })
                 .environment(store)
                 .environment(theme)
                 .transition(.opacity)
-                .zIndex(10)
+            case .ready:
+                mainInterface
+                    .transition(.opacity)
             }
         }
-        .onChange(of: ui.replayOnboarding) { if ui.replayOnboarding { showOnboarding = true; ui.replayOnboarding = false } }
+        .onChange(of: ui.replayOnboarding) { if ui.replayOnboarding { phase = .onboarding; ui.replayOnboarding = false } }
     }
 
     private var mainInterface: some View {
@@ -189,6 +209,7 @@ struct RootView: View {
             case .memory: MemoryStudioView()
             case .distillery: DistilleryView()
             case .dispatch: DispatchView()
+            case .pinned: PinnedView()
             }
         }
         .transition(.asymmetric(
@@ -202,10 +223,9 @@ struct RootView: View {
         VStack(alignment: collapsed ? .center : .leading, spacing: collapsed ? 6 : 4) {
             // Brand + (expanded) settings
             HStack(spacing: 10) {
-                Image(systemName: "triangle.fill")
-                    .font(.system(size: collapsed ? 17 : 15, weight: .bold))
-                    .foregroundStyle(theme.accentGradient)
-                    .shadow(color: theme.accent1.opacity(0.5), radius: collapsed ? 6 : 0)
+                PrismMark(animate: true)
+                    .frame(width: collapsed ? 22 : 19, height: collapsed ? 22 : 19)
+                    .shadow(color: theme.accent1.opacity(0.4), radius: collapsed ? 5 : 0)
                     .frame(maxWidth: collapsed ? .infinity : nil)
                 if !collapsed {
                     Text("Vitrine")
