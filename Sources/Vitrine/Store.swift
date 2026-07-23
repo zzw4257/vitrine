@@ -37,27 +37,67 @@ final class AppStore {
     var autoSmartTitles = UserDefaults.standard.bool(forKey: "vitrine.autoSmartTitles") {
         didSet { UserDefaults.standard.set(autoSmartTitles, forKey: "vitrine.autoSmartTitles") }
     }
+    // AI generation scope: weak-titled only (cheap, default) vs. every non-noise session
+    // (catches long-but-uninformative raw titles that `hasWeakTitle` doesn't flag); persisted
+    var retitleAllSessions = UserDefaults.standard.bool(forKey: "vitrine.retitleAllSessions") {
+        didSet { UserDefaults.standard.set(retitleAllSessions, forKey: "vitrine.retitleAllSessions") }
+    }
+    // Per-session fine-grained override of the title source, set from the session detail sheet.
+    // Takes priority over every global default; persisted.
+    var titleOverrides: [String: TitleOverride] = [:]
+
+    enum TitleOverride: String, Codable { case raw, smart }
 
     /// A session whose AI title is being generated right now (drives the row shimmer).
     func titlePending(_ s: SessionRecord) -> Bool {
-        titlingBusy && smartTitles[s.id] == nil && s.hasWeakTitle && s.qualityTier != .noise
+        titlingBusy && smartTitles[s.id] == nil && s.qualityTier != .noise
+            && (s.hasWeakTitle || retitleAllSessions)
     }
 
-    /// The title to show for browsing: AI smart title if present → heuristic (for weak titles, or
-    /// when smart mode is on) → the raw title. Never mutates the SessionRecord.
+    /// The title to show for browsing. Priority: an explicit per-session choice → AI smart title
+    /// → heuristic (for weak titles, or when smart mode is on) → the raw title. Never mutates
+    /// the SessionRecord.
     func displayTitle(_ s: SessionRecord) -> String {
+        switch titleOverrides[s.id] {
+        case .raw: return s.title
+        case .smart: return smartTitles[s.id] ?? s.heuristicTitle
+        case nil: break
+        }
         if let ai = smartTitles[s.id], !ai.isEmpty { return ai }
         if useSmartTitles || s.hasWeakTitle { return s.heuristicTitle }
         return s.title
     }
 
+    /// Explicitly pin this session's title to the raw text or the smart (AI/heuristic) text,
+    /// overriding whatever the global toggles would otherwise pick. Pass nil to clear back to default.
+    func setTitleOverride(_ choice: TitleOverride?, for id: String) {
+        titleOverrides[id] = choice
+        saveTitleOverrides()
+    }
+
     // Per-project AI insights (overview + timeline) — a secondary layer, cached per path
     var insights: [String: ProjectInsight] = [:]
+
+    /// Manual "this session's real work happened in <sub-path>" tag — for monorepos where the
+    /// CLI was invoked from a parent directory but the actual scope was one package/app inside
+    /// it. Purely additive and user-entered (never inferred); feeds the search index so browsing
+    /// or searching that sub-path surfaces the session too. Keyed by session id; persisted.
+    var scopeTags: [String: String] = [:]
+
+    /// Conversations pinned from inside a running CLI session via the installed vitrine-pin
+    /// skill/command (see PinKit.swift) — shared with those scripts through pins.json, keyed by
+    /// transcript file path. Loaded read-only here except when the user renames/unpins in-app.
+    var pins: [String: PinRecord] = [:]
+    /// Terser, pinned-view-only AI summaries — see `generatePinSummary`. Keyed by file path (not
+    /// session id) so a pin summary survives even before its transcript has been scanned.
+    var pinSummaries: [String: String] = [:]
 
     // AI configuration (provider / endpoint / model) — hindsight-style
     let ai = AISettings()
     // Local inference engine (Ollama + llama.cpp) state
     let localEngine = LocalEngineModel()
+    // Multi-device GitLab sync configuration (device identity, remote, token) — see DeviceSync.swift
+    let sync = SyncSettings()
 
     @ObservationIgnored var searchIndex: SearchIndex?
     @ObservationIgnored private var byId: [String: SessionRecord] = [:]
@@ -99,6 +139,10 @@ final class AppStore {
         loadSummaries()
         loadInsights()
         loadSmartTitles()
+        loadTitleOverrides()
+        loadScopeTags()
+        loadPins()
+        loadPinSummaries()
 
         // Phase 1: cache hits + opencode metadata appear immediately.
         let prepared = await Task.detached(priority: .userInitiated) {
@@ -140,11 +184,19 @@ final class AppStore {
         let indexPath = ScanEngine.supportDir.appendingPathComponent("search-v1.db").path
         let toIndex = allSessions
         let summarySnapshot = summaries
+        let scopeSnapshot = scopeTags
         let builtIndex = await Task.detached(priority: .userInitiated) { () -> SearchIndex? in
             let idx = SearchIndex(path: indexPath)
             var enriched = toIndex
             for i in enriched.indices {
                 if let s = summarySnapshot[enriched[i].id] { enriched[i].summary = s }
+                // Fold the manual working-scope tag into the indexed text so searching a
+                // monorepo sub-path (e.g. "apps/foo") surfaces sessions actually scoped there,
+                // even though their projectPath is the checkout root.
+                if let scope = scopeSnapshot[enriched[i].id], !scope.isEmpty {
+                    enriched[i].summary = [enriched[i].summary, "工作范围：\(scope)"]
+                        .compactMap { $0 }.joined(separator: "\n")
+                }
             }
             idx?.rebuild(enriched)
             return idx
@@ -269,22 +321,48 @@ final class AppStore {
         }
     }
 
+    private var titleOverridesURL: URL { ScanEngine.supportDir.appendingPathComponent("title-overrides.json") }
+
+    func loadTitleOverrides() {
+        guard titleOverrides.isEmpty,
+              let data = try? Data(contentsOf: titleOverridesURL),
+              let dict = try? JSONDecoder().decode([String: TitleOverride].self, from: data) else { return }
+        titleOverrides = dict
+    }
+    private func saveTitleOverrides() {
+        if let data = try? JSONEncoder().encode(titleOverrides) {
+            try? data.write(to: titleOverridesURL, options: .atomic)
+        }
+    }
+
     var titlingBusy = false
     var titleDone = 0
     var titleTotal = 0
     @ObservationIgnored private var titleCancel = false
     func cancelTitling() { titleCancel = true }
 
-    /// Count of sessions that would benefit from an AI title right now (weak-titled, not noise, not yet done).
-    var pendingTitleCount: Int {
-        sessions.lazy.filter {
-            $0.hasWeakTitle && $0.qualityTier != .noise && $0.hasTitleSignal && self.smartTitles[$0.id] == nil
-        }.count
+    /// A session qualifies for AI (re)titling when it's not noise, has real content to title from,
+    /// and either has a weak raw title or the user opted into retitling every session.
+    private func qualifiesForRetitle(_ s: SessionRecord) -> Bool {
+        guard s.qualityTier != .noise, s.hasTitleSignal else { return false }
+        return s.hasWeakTitle || retitleAllSessions
     }
 
-    /// Incrementally generate AI smart titles for weak-titled, non-noise sessions without one.
-    /// `auto` (post-scan background pass) caps to the most recent few to stay cheap. Cached +
-    /// persisted; never touches raw titles. Small concurrency pool.
+    /// Count of sessions that would benefit from an AI title right now (not yet done).
+    var pendingTitleCount: Int {
+        sessions.lazy.filter { self.qualifiesForRetitle($0) && self.smartTitles[$0.id] == nil }.count
+    }
+
+    /// Sessions permanently stuck on the heuristic fallback because there's nothing concrete to
+    /// title with (no substantive prompts, no files, no commands) — shown in Settings so the gap
+    /// reads as "honest, nothing to say" rather than "the feature is broken".
+    var noSignalTitleCount: Int {
+        sessions.lazy.filter { $0.qualityTier != .noise && $0.hasWeakTitle && !$0.hasTitleSignal }.count
+    }
+
+    /// Incrementally generate AI smart titles for qualifying sessions without one (see
+    /// `qualifiesForRetitle`). `auto` (post-scan background pass) caps to the most recent few to
+    /// stay cheap. Cached + persisted; never touches raw titles. Small concurrency pool.
     @MainActor
     func generateSmartTitles(force: Bool = false, auto: Bool = false) async {
         guard !titlingBusy, aiAvailable else { return }
@@ -296,8 +374,7 @@ final class AppStore {
             if pruned.count != smartTitles.count { smartTitles = pruned; saveSmartTitles() }
         }
         var targets = sessions.filter { s in
-            // Only weak titles, never noise, and only when there's real content to title from.
-            guard s.qualityTier != .noise, s.hasWeakTitle, s.hasTitleSignal else { return false }
+            guard qualifiesForRetitle(s) else { return false }
             return force || smartTitles[s.id] == nil                             // force also refreshes cached
         }
         if auto { targets = Array(targets.prefix(60)) }                // sessions are recent-first
@@ -398,6 +475,88 @@ final class AppStore {
         let parsed = try Summarizer.parseInsight(raw, project: project, model: cfg.model.isEmpty ? cfg.providerID : cfg.model)
         insights[project.path] = parsed
         saveInsights()
+    }
+
+    // MARK: Working-scope tags (manual, non-destructive — see `scopeTags` doc comment)
+
+    private var scopeTagsURL: URL { ScanEngine.supportDir.appendingPathComponent("scope-tags.json") }
+
+    func loadScopeTags() {
+        guard scopeTags.isEmpty,
+              let data = try? Data(contentsOf: scopeTagsURL),
+              let dict = try? JSONDecoder().decode([String: String].self, from: data) else { return }
+        scopeTags = dict
+    }
+    private func saveScopeTags() {
+        if let data = try? JSONEncoder().encode(scopeTags) {
+            try? data.write(to: scopeTagsURL, options: .atomic)
+        }
+    }
+
+    /// Set (or clear, with an empty/whitespace string) the manual working-scope tag for a session.
+    func setScopeTag(_ tag: String, for id: String) {
+        let trimmed = tag.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty { scopeTags.removeValue(forKey: id) } else { scopeTags[id] = trimmed }
+        saveScopeTags()
+    }
+
+    // MARK: Multi-device sync
+
+    /// This device's current aggregate snapshot — the ONLY thing a sync ever uploads. No prompts,
+    /// no transcripts, no file paths beyond a project's display name.
+    func currentDeviceSnapshot() -> DeviceSnapshot {
+        let cost = sessions.totalEstimatedCost()
+        var share: [String: Int] = [:]
+        for (agent, n) in sessions.agentShare(by: .messages) { share[agent.rawValue] = n }
+        return DeviceSnapshot(device: DeviceIdentity.current(), syncedAt: Date(),
+                               sessionCount: sessions.count, projectCount: projects.count,
+                               totalTokens: sessions.totalTokens, estimatedCostUSD: cost.usd,
+                               agentShare: share)
+    }
+
+    @MainActor
+    func syncNow() async {
+        guard !sync.syncing else { return }
+        sync.syncing = true
+        sync.lastResult = nil
+        do {
+            let msg = try await GitSync.syncNow(remoteURL: sync.remoteURL, token: sync.token,
+                                                 snapshot: currentDeviceSnapshot())
+            sync.lastResult = (msg, false)
+            sync.lastSyncAt = Date()
+        } catch {
+            sync.lastResult = (error.localizedDescription, true)
+        }
+        sync.syncing = false
+    }
+
+    // MARK: Pinned-view summaries — deliberately terser than the session-detail summary, since
+    // the Pinned panel shows many at once and needs a subtitle, not a paragraph.
+
+    private var pinSummariesURL: URL { ScanEngine.supportDir.appendingPathComponent("pin-summaries.json") }
+
+    func loadPinSummaries() {
+        guard pinSummaries.isEmpty,
+              let data = try? Data(contentsOf: pinSummariesURL),
+              let dict = try? JSONDecoder().decode([String: String].self, from: data) else { return }
+        pinSummaries = dict
+    }
+    private func savePinSummaries() {
+        if let data = try? JSONEncoder().encode(pinSummaries) {
+            try? data.write(to: pinSummariesURL, options: .atomic)
+        }
+    }
+
+    @MainActor
+    func generatePinSummary(for s: SessionRecord) async throws {
+        let cfg = ai.snapshot()
+        let text = try await AIClient.chat(
+            cfg,
+            system: "你为置顶列表写一句最精炼的中文副标题（≤18 字，一个短语，不成句、不带标点），"
+                  + "概括这次会话做了什么，供一眼扫过时识别，而不是完整总结。",
+            user: Summarizer.aiPrompt(for: s), maxTokens: 60, model: cfg.fastModel)
+        pinSummaries[s.filePath] = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        savePinSummaries()
     }
 }
 
