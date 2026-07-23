@@ -161,6 +161,14 @@ struct SessionRecord: Codable, Identifiable, Hashable {
     /// and is the number that matches "this conversation is huge" intuition.
     var totalTokens: Int
     var tokensEstimated: Bool
+    /// Cache tokens actually reported by the source, kept separate from `inputTokens` for accurate
+    /// cost estimation (see Pricing.swift). Only Claude and Codex report these today; nil elsewhere.
+    /// Claude: a disjoint "cache read" count alongside fresh `inputTokens`. Codex: `cached_input_tokens`,
+    /// a SUBSET already included within `inputTokens` (see `effectiveInputTokens`/`cacheHitTokens`).
+    var cacheReadTokens: Int? = nil
+    /// Anthropic-only: tokens spent writing a NEW cache entry (billed above base input price).
+    /// Codex/OpenAI has no equivalent (cached tokens are auto-detected, not explicitly written).
+    var cacheCreationTokens: Int? = nil
     var models: [String]
     var toolCounts: [String: Int]
     var bashCommands: [String]

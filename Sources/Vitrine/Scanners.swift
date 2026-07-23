@@ -95,6 +95,7 @@ enum ClaudeScanner {
         var models = Set<String>(), tools: [String: Int] = [:]
         var cmds: [String] = [], files = Set<String>(), prompts: [String] = []
         var title: String?
+        var cacheReadTok = 0, cacheCreationTok = 0
 
         JSONL.forEachLine(of: url) { obj in
             guard let type = obj["type"] as? String else { return }
@@ -136,6 +137,8 @@ enum ClaudeScanner {
                     inTok += i
                     outTok += o
                     totalTok += i + o + cr + cc
+                    cacheReadTok += cr
+                    cacheCreationTok += cc
                 }
                 if let blocks = msg["content"] as? [[String: Any]] {
                     for b in blocks where (b["type"] as? String) == "tool_use" {
@@ -164,6 +167,7 @@ enum ClaudeScanner {
             userMessages: userN, assistantMessages: asstN,
             inputTokens: inTok, outputTokens: outTok,
             totalTokens: max(totalTok, inTok + outTok), tokensEstimated: false,
+            cacheReadTokens: cacheReadTok, cacheCreationTokens: cacheCreationTok,
             models: models.sorted(), toolCounts: tools,
             bashCommands: cmds, filesTouched: Array(files).sorted(),
             userPrompts: prompts, isSubagent: false, cliVersion: cliVersion, summary: nil)
@@ -202,7 +206,7 @@ enum CodexScanner {
         var eventPrompts: [String] = []
         var title: String?
         var asstChars = 0
-        var tokIn: Int?, tokOut: Int?, tokTotal: Int?
+        var tokIn: Int?, tokOut: Int?, tokTotal: Int?, tokCached: Int?
 
         JSONL.forEachLine(of: url) { obj in
             if let ts = JSONL.date(obj["timestamp"] as? String) {
@@ -281,10 +285,14 @@ enum CodexScanner {
                         // total_token_usage is cumulative — keep the largest seen.
                         let i = usage["input_tokens"] as? Int ?? 0
                         let o = usage["output_tokens"] as? Int ?? 0
+                        // `cached_input_tokens` is a SUBSET of input_tokens (OpenAI's discounted-
+                        // rate re-read), not an extra read the way Anthropic's cache fields are —
+                        // adding it on top double-counted total throughput for every Codex session.
                         let cached = usage["cached_input_tokens"] as? Int ?? 0
                         tokIn = max(tokIn ?? 0, i)
                         tokOut = max(tokOut ?? 0, o)
-                        tokTotal = max(tokTotal ?? 0, i + o + cached)
+                        tokTotal = max(tokTotal ?? 0, i + o)
+                        tokCached = max(tokCached ?? 0, cached)
                     }
                 default: break
                 }
@@ -309,6 +317,7 @@ enum CodexScanner {
             outputTokens: tokOut ?? asstChars / 4,
             totalTokens: tokTotal ?? ((tokIn ?? 0) + (tokOut ?? asstChars / 4)),
             tokensEstimated: tokOut == nil,
+            cacheReadTokens: tokCached,
             models: models.sorted(), toolCounts: tools,
             bashCommands: cmds, filesTouched: Array(files).sorted(),
             userPrompts: prompts, isSubagent: isSubagent,
